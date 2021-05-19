@@ -25,6 +25,7 @@ use crate::{
     },
     object::{Client, Object, UnidirectionalChannelPath},
     registry::Registry,
+    rest,
     util::try_recv_multiple,
     worker::{WorkerMap, WorkerMsg},
 };
@@ -40,11 +41,12 @@ pub struct Supervisor {
     registry: Registry,
     workers: WorkerMap,
     worker_msg_rx: Receiver<WorkerMsg>,
+    rest_receiver: Receiver<rest::Request>,
 }
 
 impl Supervisor {
     /// Spawns a [`Supervisor`] which will listen for events on all the chains in the [`Config`].
-    pub fn spawn(config: Config) -> Result<Self, BoxError> {
+    pub fn spawn(config: Config, rest_receiver: Receiver<rest::Request>) -> Result<Self, BoxError> {
         let registry = Registry::new(config.clone());
         let (worker_msg_tx, worker_msg_rx) = crossbeam_channel::unbounded();
 
@@ -53,6 +55,7 @@ impl Supervisor {
             registry,
             workers: WorkerMap::new(worker_msg_tx),
             worker_msg_rx,
+            rest_receiver,
         })
     }
 
@@ -284,6 +287,10 @@ impl Supervisor {
                 self.handle_msg(msg);
             }
 
+            if let Some(msg) = rest::process(&self.config, &self.rest_receiver) {
+                self.handle_rest_request(msg);
+            }
+
             std::thread::sleep(Duration::from_millis(50));
         }
     }
@@ -299,6 +306,10 @@ impl Supervisor {
                 }
             }
         }
+    }
+
+    fn handle_rest_request(&mut self, _m: rest::Msg) {
+        todo!()
     }
 
     fn handle_batch(

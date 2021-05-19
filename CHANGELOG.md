@@ -2,7 +2,21 @@
 
 ## Unreleased
 
-> Nothing yet,
+### FEATURES
+
+- [ibc-relayer-rest]
+  - New crate with a RESTful API for the relayer library ([#843])
+
+### IMPROVEMENTS
+
+### BUG FIXES
+
+### BREAKING CHANGES
+
+[ibc-relayer-rest]: https://github.com/informalsystems/ibc-rs/tree/master/relayer-rest
+
+[#843]: https://github.com/informalsystems/ibc-rs/issues/843
+
 
 ## v0.3.1
 *May 14h, 2021*
