@@ -9,7 +9,8 @@ members = [
 ]
 
 exclude = [
-    "proto-compiler"
+    "proto-compiler",
+    "stainless"
 ]
 
 # [patch.crates-io]
