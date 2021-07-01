@@ -6,10 +6,11 @@ use abscissa_core::{
     component::Component,
     config, Application, Configurable, FrameworkError, FrameworkErrorKind, StandardPaths,
 };
+use ibc_relayer::config::Config;
 
 use crate::components::{JsonTracing, PrettyTracing};
 use crate::entry::EntryPoint;
-use crate::{commands::CliCmd, config::validate_config, config::Config};
+use crate::{commands::CliCmd, config::validate_config};
 
 /// Application state
 pub static APPLICATION: AppCell<CliApp> = AppCell::new();

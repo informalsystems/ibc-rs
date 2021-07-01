@@ -4,14 +4,17 @@ use ibc_proto::ibc::core::commitment::v1::MerklePath;
 use ibc_proto::ibc::core::commitment::v1::MerkleProof as RawMerkleProof;
 
 use crate::ics23_commitment::commitment::{CommitmentPrefix, CommitmentProofBytes};
-use crate::ics23_commitment::error::Error;
+use crate::ics23_commitment::error;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct EmptyPrefixError;
 
 pub fn apply_prefix(
     prefix: &CommitmentPrefix,
     mut path: Vec<String>,
-) -> Result<MerklePath, Box<dyn std::error::Error>> {
+) -> Result<MerklePath, EmptyPrefixError> {
     if prefix.is_empty() {
-        return Err("empty prefix".into());
+        return Err(EmptyPrefixError);
     }
 
     let mut result: Vec<String> = vec![format!("{:?}", prefix)];
@@ -77,13 +80,13 @@ pub struct MerkleProof {
 //     }
 // }
 
-pub fn convert_tm_to_ics_merkle_proof(tm_proof: &Proof) -> Result<RawMerkleProof, Error> {
+pub fn convert_tm_to_ics_merkle_proof(tm_proof: &Proof) -> Result<RawMerkleProof, error::Error> {
     let mut proofs = vec![];
 
     for op in &tm_proof.ops {
         let mut parsed = ibc_proto::ics23::CommitmentProof { proof: None };
         prost::Message::merge(&mut parsed, op.data.as_slice())
-            .map_err(Error::CommitmentProofDecodingFailed)?;
+            .map_err(error::commitment_proof_decoding_failed_error)?;
 
         proofs.push(parsed);
     }

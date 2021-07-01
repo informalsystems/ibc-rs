@@ -1,13 +1,15 @@
 use std::cmp::Ordering;
-use std::convert::{Infallible, TryFrom};
+use std::convert::TryFrom;
+use std::num::ParseIntError;
 use std::str::FromStr;
 
+use flex_error::{define_error, TraceError};
 use serde_derive::{Deserialize, Serialize};
 use tendermint_proto::Protobuf;
 
 use ibc_proto::ibc::core::client::v1::Height as RawHeight;
 
-use crate::ics02_client::error::{Error, Kind};
+use crate::ics02_client::error;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Height {
@@ -48,11 +50,9 @@ impl Height {
         self.add(1)
     }
 
-    pub fn sub(&self, delta: u64) -> Result<Height, Error> {
+    pub fn sub(&self, delta: u64) -> Result<Height, error::Error> {
         if self.revision_height <= delta {
-            return Err(Kind::InvalidHeightResult
-                .context("height cannot end up zero or negative")
-                .into());
+            return Err(error::invalid_height_result_error());
         }
 
         Ok(Height {
@@ -61,7 +61,7 @@ impl Height {
         })
     }
 
-    pub fn decrement(&self) -> Result<Height, Error> {
+    pub fn decrement(&self) -> Result<Height, error::Error> {
         self.sub(1)
     }
 
@@ -103,14 +103,12 @@ impl Ord for Height {
 
 impl Protobuf<RawHeight> for Height {}
 
-impl TryFrom<RawHeight> for Height {
-    type Error = Infallible;
-
-    fn try_from(raw: RawHeight) -> Result<Self, Self::Error> {
-        Ok(Height {
+impl From<RawHeight> for Height {
+    fn from(raw: RawHeight) -> Self {
+        Height {
             revision_number: raw.revision_number,
             revision_height: raw.revision_height,
-        })
+        }
     }
 }
 
@@ -139,18 +137,30 @@ impl std::fmt::Display for Height {
     }
 }
 
+define_error! {
+    Error {
+        HeightConversion
+            { height: String }
+            [ TraceError<ParseIntError> ]
+            | e | {
+                format_args!("cannot convert into a `Height` type from string {0}",
+                    e.height)
+            },
+    }
+}
+
 impl TryFrom<&str> for Height {
-    type Error = Kind;
+    type Error = Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let split: Vec<&str> = value.split('-').collect();
         Ok(Height {
             revision_number: split[0]
                 .parse::<u64>()
-                .map_err(|e| Kind::HeightConversion(value.to_owned(), e))?,
+                .map_err(|e| height_conversion_error(value.to_owned(), e))?,
             revision_height: split[1]
                 .parse::<u64>()
-                .map_err(|e| Kind::HeightConversion(value.to_owned(), e))?,
+                .map_err(|e| height_conversion_error(value.to_owned(), e))?,
         })
     }
 }
@@ -162,7 +172,7 @@ impl From<Height> for String {
 }
 
 impl FromStr for Height {
-    type Err = Kind;
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Height::try_from(s)

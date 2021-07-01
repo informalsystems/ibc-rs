@@ -18,7 +18,7 @@ impl Runnable for StartCmd {
 
         // No chain is preconfigured
         if config.chains.is_empty() {
-            Output::error(config::Error::ZeroChains).exit();
+            Output::error(config::zero_chain_error()).exit();
         };
 
         match spawn_supervisor(config.clone()).and_then(|s| {
