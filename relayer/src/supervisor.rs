@@ -1,6 +1,5 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, ops::Deref, sync::Arc, time::Duration};
 
-use anomaly::BoxError;
 use crossbeam_channel::Receiver;
 use itertools::Itertools;
 use tracing::{debug, error, info, warn};
@@ -22,10 +21,7 @@ use crate::{
     chain::counterparty::channel_state_on_destination,
     chain::{counterparty::connection_state_on_destination, handle::ChainHandle},
     config::{Config, Strategy},
-    event::{
-        self,
-        monitor::{EventBatch, UnwrapOrClone},
-    },
+    event::{self, monitor::EventBatch},
     object::{Channel, Client, Connection, Object, UnidirectionalChannelPath},
     registry::Registry,
     telemetry::Telemetry,
@@ -33,7 +29,7 @@ use crate::{
     worker::{WorkerMap, WorkerMsg},
 };
 
-mod error;
+pub mod error;
 pub use error::Error;
 use ibc::ics24_host::identifier::PortId;
 
@@ -110,20 +106,24 @@ impl Supervisor {
     pub fn collect_events(
         &self,
         src_chain: &dyn ChainHandle,
-        batch: EventBatch,
+        batch: &EventBatch,
     ) -> CollectedEvents {
-        let mut collected = CollectedEvents::new(batch.height, batch.chain_id);
+        let mut collected = CollectedEvents::new(batch.height, batch.chain_id.clone());
 
-        for event in batch.events {
+        for event in &batch.events {
             match event {
                 IbcEvent::NewBlock(_) => {
-                    collected.new_block = Some(event);
+                    collected.new_block = Some(event.clone());
                 }
                 IbcEvent::UpdateClient(ref update) => {
                     if let Ok(object) = Object::for_update_client(update, src_chain) {
                         // Collect update client events only if the worker exists
                         if self.workers.contains(&object) {
-                            collected.per_object.entry(object).or_default().push(event);
+                            collected
+                                .per_object
+                                .entry(object)
+                                .or_default()
+                                .push(event.clone());
                         }
                     }
                 }
@@ -139,7 +139,11 @@ impl Supervisor {
                         .map(|attr| Object::connection_from_conn_open_events(attr, src_chain));
 
                     if let Some(Ok(object)) = object {
-                        collected.per_object.entry(object).or_default().push(event);
+                        collected
+                            .per_object
+                            .entry(object)
+                            .or_default()
+                            .push(event.clone());
                     }
                 }
                 IbcEvent::OpenInitChannel(..) | IbcEvent::OpenTryChannel(..) => {
@@ -152,7 +156,11 @@ impl Supervisor {
                         .map(|attr| Object::channel_from_chan_open_events(attr, src_chain));
 
                     if let Some(Ok(object)) = object {
-                        collected.per_object.entry(object).or_default().push(event);
+                        collected
+                            .per_object
+                            .entry(object)
+                            .or_default()
+                            .push(event.clone());
                     }
                 }
                 IbcEvent::OpenAckChannel(ref open_ack) => {
@@ -176,7 +184,11 @@ impl Supervisor {
                         .map(|attr| Object::channel_from_chan_open_events(attr, src_chain));
 
                     if let Some(Ok(object)) = object {
-                        collected.per_object.entry(object).or_default().push(event);
+                        collected
+                            .per_object
+                            .entry(object)
+                            .or_default()
+                            .push(event.clone());
                     }
                 }
                 IbcEvent::OpenConfirmChannel(ref open_confirm) => {
@@ -193,22 +205,38 @@ impl Supervisor {
                 }
                 IbcEvent::SendPacket(ref packet) => {
                     if let Ok(object) = Object::for_send_packet(packet, src_chain) {
-                        collected.per_object.entry(object).or_default().push(event);
+                        collected
+                            .per_object
+                            .entry(object)
+                            .or_default()
+                            .push(event.clone());
                     }
                 }
                 IbcEvent::TimeoutPacket(ref packet) => {
                     if let Ok(object) = Object::for_timeout_packet(packet, src_chain) {
-                        collected.per_object.entry(object).or_default().push(event);
+                        collected
+                            .per_object
+                            .entry(object)
+                            .or_default()
+                            .push(event.clone());
                     }
                 }
                 IbcEvent::WriteAcknowledgement(ref packet) => {
                     if let Ok(object) = Object::for_write_ack(packet, src_chain) {
-                        collected.per_object.entry(object).or_default().push(event);
+                        collected
+                            .per_object
+                            .entry(object)
+                            .or_default()
+                            .push(event.clone());
                     }
                 }
                 IbcEvent::CloseInitChannel(ref packet) => {
                     if let Ok(object) = Object::for_close_init_channel(packet, src_chain) {
-                        collected.per_object.entry(object).or_default().push(event);
+                        collected
+                            .per_object
+                            .entry(object)
+                            .or_default()
+                            .push(event.clone());
                     }
                 }
                 _ => (),
@@ -404,7 +432,7 @@ impl Supervisor {
         chain: Box<dyn ChainHandle>,
         client: IdentifiedAnyClientState,
         connection: IdentifiedConnectionEnd,
-    ) -> Result<(), BoxError> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let counterparty_chain = self
             .registry
             .get_or_spawn(&client.client_state.chain_id())?;
@@ -450,7 +478,7 @@ impl Supervisor {
         client: IdentifiedAnyClientState,
         connection: IdentifiedConnectionEnd,
         channel: IdentifiedChannelEnd,
-    ) -> Result<(), BoxError> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let counterparty_chain = self
             .registry
             .get_or_spawn(&client.client_state.chain_id())?;
@@ -507,7 +535,7 @@ impl Supervisor {
     }
 
     /// Run the supervisor event loop.
-    pub fn run(mut self) -> Result<(), BoxError> {
+    pub fn run(mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut subscriptions = Vec::with_capacity(self.config.chains.len());
 
         for chain_config in &self.config.chains {
@@ -572,13 +600,15 @@ impl Supervisor {
     ) {
         let chain_id = chain.id();
 
-        let result = batch
-            .unwrap_or_clone()
-            .map_err(Into::into)
-            .and_then(|batch| self.process_batch(chain, batch));
-
-        if let Err(e) = result {
-            error!("[{}] error during batch processing: {}", chain_id, e);
+        match batch.deref() {
+            Ok(batch) => {
+                let _ = self
+                    .process_batch(chain, batch)
+                    .map_err(|e| error!("[{}] error during batch processingh: {}", chain_id, e));
+            }
+            Err(e) => {
+                error!("[{}] error in receiving event batch: {}", chain_id, e)
+            }
         }
     }
 
@@ -586,8 +616,8 @@ impl Supervisor {
     fn process_batch(
         &mut self,
         src_chain: Box<dyn ChainHandle>,
-        batch: EventBatch,
-    ) -> Result<(), BoxError> {
+        batch: &EventBatch,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(src_chain.id(), batch.chain_id);
 
         let height = batch.height;
@@ -631,7 +661,7 @@ impl Supervisor {
         &mut self,
         client: IdentifiedAnyClientState,
         connection: IdentifiedConnectionEnd,
-    ) -> Result<ConnectionState, BoxError> {
+    ) -> Result<ConnectionState, Box<dyn std::error::Error>> {
         let counterparty_chain = self
             .registry
             .get_or_spawn(&client.client_state.chain_id())?;

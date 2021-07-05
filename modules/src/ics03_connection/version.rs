@@ -1,11 +1,14 @@
-use std::convert::TryFrom;
-
+use crate::primitives::String;
+use crate::primitives::ToString;
 use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
+use std::prelude::*;
+use std::vec::Vec;
 use tendermint_proto::Protobuf;
 
 use ibc_proto::ibc::core::connection::v1::Version as RawVersion;
 
-use crate::ics03_connection::error::Kind;
+use crate::ics03_connection::error;
 
 /// Stores the identifier and the features supported by a version
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -26,18 +29,14 @@ impl Version {
 impl Protobuf<RawVersion> for Version {}
 
 impl TryFrom<RawVersion> for Version {
-    type Error = anomaly::Error<Kind>;
+    type Error = error::Error;
     fn try_from(value: RawVersion) -> Result<Self, Self::Error> {
         if value.identifier.trim().is_empty() {
-            return Err(Kind::InvalidVersion
-                .context("empty version string".to_string())
-                .into());
+            return Err(error::empty_versions_error());
         }
         for feature in value.features.iter() {
             if feature.trim().is_empty() {
-                return Err(Kind::InvalidVersion
-                    .context("empty feature string".to_string())
-                    .into());
+                return Err(error::empty_features_error());
             }
         }
         Ok(Version {

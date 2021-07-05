@@ -1,48 +1,100 @@
-use anomaly::{BoxError, Context};
-use thiserror::Error;
+use crate::ics24_host::error::ValidationError;
+use crate::primitives::String;
+use flex_error::{define_error, DisplayError, DisplayOnly, TraceError};
+use tendermint::error::Error as TendermintError;
 
-use crate::ics24_host::error::ValidationKind;
+#[cfg(not(feature = "std"))]
+impl crate::primitives::StdError for Error {}
 
-pub type Error = anomaly::Error<Kind>;
+define_error! {
+    Error {
+        InvalidTrustingPeriod
+            { reason: String }
+            | _ | { "invalid trusting period" },
 
-#[derive(Clone, Debug, Error)]
-pub enum Kind {
-    #[error("invalid trusting period")]
-    InvalidTrustingPeriod,
+        InvalidUnboundingPeriod
+            { reason: String }
+            | _ | { "invalid unbonding period" },
 
-    #[error("invalid unbonding period")]
-    InvalidUnboundingPeriod,
+        InvalidAddress
+            | _ | { "invalid address" },
 
-    #[error("invalid address")]
-    InvalidAddress,
+        InvalidHeader
+            { reason: String }
+            [ DisplayOnly<TendermintError> ]
+            | _ | { "invalid header, failed basic validation" },
 
-    #[error("invalid header, failed basic validation")]
-    InvalidHeader,
+        MissingSignedHeader
+            | _ | { "missing signed header" },
 
-    #[error("validation error")]
-    ValidationError,
+        Validation
+            { reason: String }
+            | _ | { "invalid header, failed basic validation" },
 
-    #[error("invalid raw client state")]
-    InvalidRawClientState,
+        InvalidRawClientState
+            { reason: String }
+            | _ | { "invalid raw client state" },
 
-    #[error("invalid chain identifier: raw value {0} with underlying validation error: {1}")]
-    InvalidChainId(String, ValidationKind),
+        MissingValidatorSet
+            | _ | { "missing validator set" },
 
-    #[error("invalid raw height")]
-    InvalidRawHeight,
+        MissingTrustedValidatorSet
+            | _ | { "missing trusted validator set" },
 
-    #[error("invalid raw client consensus state")]
-    InvalidRawConsensusState,
+        MissingTrustedHeight
+            | _ | { "missing trusted height" },
 
-    #[error("invalid raw header")]
-    InvalidRawHeader,
+        MissingTrustingPeriod
+            | _ | { "missing trusting period" },
 
-    #[error("invalid raw misbehaviour")]
-    InvalidRawMisbehaviour,
-}
+        MissingUnbondingPeriod
+            | _ | { "missing unbonding period" },
 
-impl Kind {
-    pub fn context(self, source: impl Into<BoxError>) -> Context<Self> {
-        Context::new(self, Some(source.into()))
+        InvalidChainIdentifier
+            [ ValidationError ]
+            | _ | { "Invalid chain identifier" },
+
+        NegativeTrustingPeriod
+            | _ | { "negative trusting period" },
+
+        NegativeUnbondingPeriod
+            | _ | { "negative unbonding period" },
+
+        MissingMaxClockDrift
+            | _ | { "missing max clock drift" },
+
+        NegativeMaxClockDrift
+            | _ | {  "negative max clock drift" },
+
+        MissingLatestHeight
+            | _ | { "missing latest height" },
+
+        MissingFrozenHeight
+            | _ | { "missing frozen height" },
+
+        InvalidChainId
+            { raw_value: String }
+            [ ValidationError ]
+            | e | { format_args!("invalid chain identifier: raw value {0}", e.raw_value) },
+
+        InvalidRawHeight
+            | _ | { "invalid raw height" },
+
+        InvalidRawConsensusState
+            { reason: String }
+            | _ | { "invalid raw client consensus state" },
+
+        InvalidRawHeader
+            [ DisplayOnly<TendermintError> ]
+            | _ | { "invalid raw header" },
+
+        InvalidRawMisbehaviour
+            { reason: String }
+            | _ | { "invalid raw misbehaviour" },
+
+        Decode
+            [ TraceError<prost::DecodeError> ]
+            | _ | { "decode error" },
+
     }
 }

@@ -1,6 +1,7 @@
 #![allow(clippy::large_enum_variant)]
+#![allow(unused_imports)]
 #![deny(
-    warnings,
+    // warnings,
     // missing_docs,
     trivial_casts,
     trivial_numeric_casts,
@@ -12,6 +13,7 @@
 //  https://github.com/informalsystems/ibc-rs/issues/987
 // #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 #![forbid(unsafe_code)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 //! Implementation of the following ICS modules:
 //!
@@ -26,18 +28,20 @@
 //! - ICS 26: Routing
 //! - Applications:
 //!    - ICS 20: Fungible Token Transfer
+#[cfg(not(feature = "std"))]
+extern crate sp_std as std;
 
 pub mod application;
 pub mod events;
 pub mod handler;
 pub mod keys;
 pub mod macros;
+pub mod primitives;
 pub mod proofs;
 pub mod query;
 pub mod signer;
 pub mod timestamp;
 pub mod tx_msg;
-pub mod utils;
 
 pub mod ics02_client;
 pub mod ics03_connection;

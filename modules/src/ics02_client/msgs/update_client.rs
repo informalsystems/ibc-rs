@@ -1,12 +1,13 @@
 //! Definition of domain type message `MsgUpdateAnyClient`.
 
+use crate::primitives::String;
+use crate::primitives::ToString;
 use std::convert::TryFrom;
-
 use tendermint_proto::Protobuf;
 
 use ibc_proto::ibc::core::client::v1::MsgUpdateClient as RawMsgUpdateClient;
 
-use crate::ics02_client::error::{Error, Kind};
+use crate::ics02_client::error;
 use crate::ics02_client::header::AnyHeader;
 use crate::ics24_host::error::ValidationError;
 use crate::ics24_host::identifier::ClientId;
@@ -49,16 +50,16 @@ impl Msg for MsgUpdateAnyClient {
 impl Protobuf<RawMsgUpdateClient> for MsgUpdateAnyClient {}
 
 impl TryFrom<RawMsgUpdateClient> for MsgUpdateAnyClient {
-    type Error = Error;
+    type Error = error::Error;
 
     fn try_from(raw: RawMsgUpdateClient) -> Result<Self, Self::Error> {
-        let raw_header = raw.header.ok_or(Kind::InvalidRawHeader)?;
+        let raw_header = raw.header.ok_or_else(error::missing_raw_header_error)?;
 
         Ok(MsgUpdateAnyClient {
             client_id: raw
                 .client_id
                 .parse()
-                .map_err(|e| Kind::InvalidMsgUpdateClientId.context(e))?,
+                .map_err(error::invalid_msg_update_client_id_error)?,
             header: AnyHeader::try_from(raw_header)?,
             signer: raw.signer.into(),
         })

@@ -3,11 +3,12 @@ use crate::ics02_client::{client_def::AnyClient, client_def::ClientDef};
 use crate::ics03_connection::connection::ConnectionEnd;
 use crate::ics04_channel::channel::ChannelEnd;
 use crate::ics04_channel::context::ChannelReader;
-use crate::ics04_channel::error::{Error, Kind};
+use crate::ics04_channel::error;
 use crate::ics04_channel::packet::{Packet, Sequence};
 use crate::ics24_host::identifier::ClientId;
+use crate::primitives::format;
 use crate::proofs::Proofs;
-
+use std::vec::Vec;
 /// Entry point for verifying all proofs bundled in any ICS4 message for channel protocols.
 pub fn verify_channel_proofs(
     ctx: &dyn ChannelReader,
@@ -15,31 +16,34 @@ pub fn verify_channel_proofs(
     connection_end: &ConnectionEnd,
     expected_chan: &ChannelEnd,
     proofs: &Proofs,
-) -> Result<(), Error> {
+) -> Result<(), error::Error> {
     // This is the client which will perform proof verification.
     let client_id = connection_end.client_id().clone();
 
     let client_state = ctx
         .client_state(&client_id)
-        .ok_or_else(|| Kind::MissingClientState(client_id.clone()))?;
+        .ok_or_else(|| error::missing_client_state_error(client_id.clone()))?;
 
     // The client must not be frozen.
     if client_state.is_frozen() {
-        return Err(Kind::FrozenClient(client_id).into());
+        return Err(error::frozen_client_error(client_id));
     }
 
     if ctx
         .client_consensus_state(&client_id, proofs.height())
         .is_none()
     {
-        return Err(Kind::MissingClientConsensusState(client_id, proofs.height()).into());
+        return Err(error::missing_client_consensus_state_error(
+            client_id,
+            proofs.height(),
+        ));
     }
 
     let client_def = AnyClient::from_client_type(client_state.client_type());
 
     // Verify the proof for the channel state against the expected channel end.
     // A counterparty channel id of None in not possible, and is checked by validate_basic in msg.
-    Ok(client_def
+    client_def
         .verify_channel_state(
             &client_state,
             proofs.height(),
@@ -49,7 +53,7 @@ pub fn verify_channel_proofs(
             channel_end.counterparty().channel_id().unwrap(),
             expected_chan,
         )
-        .map_err(|_| Kind::InvalidProof)?)
+        .map_err(error::verify_channel_failed_error)
 }
 
 /// Entry point for verifying all proofs bundled in a ICS4 packet recv. message.
@@ -58,21 +62,24 @@ pub fn verify_packet_recv_proofs(
     packet: &Packet,
     client_id: ClientId,
     proofs: &Proofs,
-) -> Result<(), Error> {
+) -> Result<(), error::Error> {
     let client_state = ctx
         .client_state(&client_id)
-        .ok_or_else(|| Kind::MissingClientState(client_id.clone()))?;
+        .ok_or_else(|| error::missing_client_state_error(client_id.clone()))?;
 
     // The client must not be frozen.
     if client_state.is_frozen() {
-        return Err(Kind::FrozenClient(client_id).into());
+        return Err(error::frozen_client_error(client_id));
     }
 
     if ctx
         .client_consensus_state(&client_id, proofs.height())
         .is_none()
     {
-        return Err(Kind::MissingClientConsensusState(client_id, proofs.height()).into());
+        return Err(error::missing_client_consensus_state_error(
+            client_id,
+            proofs.height(),
+        ));
     }
 
     let client_def = AnyClient::from_client_type(client_state.client_type());
@@ -84,7 +91,7 @@ pub fn verify_packet_recv_proofs(
     let commitment = ctx.hash(input);
 
     // Verify the proof for the packet against the chain store.
-    Ok(client_def
+    client_def
         .verify_packet_data(
             &client_state,
             proofs.height(),
@@ -94,7 +101,9 @@ pub fn verify_packet_recv_proofs(
             &packet.sequence,
             commitment,
         )
-        .map_err(|_| Kind::PacketVerificationFailed(packet.sequence))?)
+        .map_err(|e| error::packet_verification_failed_error(packet.sequence, e))?;
+
+    Ok(())
 }
 
 /// Entry point for verifying all proofs bundled in an ICS4 packet ack message.
@@ -104,20 +113,20 @@ pub fn verify_packet_acknowledgement_proofs(
     acknowledgement: Vec<u8>,
     client_id: ClientId,
     proofs: &Proofs,
-) -> Result<(), Error> {
+) -> Result<(), error::Error> {
     let client_state = ctx
         .client_state(&client_id)
-        .ok_or_else(|| Kind::MissingClientState(client_id.clone()))?;
+        .ok_or_else(|| error::missing_client_state_error(client_id.clone()))?;
 
     // The client must not be frozen.
     if client_state.is_frozen() {
-        return Err(Kind::FrozenClient(client_id).into());
+        return Err(error::frozen_client_error(client_id));
     }
 
     let client_def = AnyClient::from_client_type(client_state.client_type());
 
     // Verify the proof for the packet against the chain store.
-    Ok(client_def
+    client_def
         .verify_packet_acknowledgement(
             &client_state,
             proofs.height(),
@@ -127,7 +136,9 @@ pub fn verify_packet_acknowledgement_proofs(
             &packet.sequence,
             acknowledgement,
         )
-        .map_err(|_| Kind::PacketVerificationFailed(packet.sequence))?)
+        .map_err(|e| error::packet_verification_failed_error(packet.sequence, e))?;
+
+    Ok(())
 }
 
 /// Entry point for verifying all timeout proofs.
@@ -137,20 +148,20 @@ pub fn verify_next_sequence_recv(
     packet: Packet,
     seq: Sequence,
     proofs: &Proofs,
-) -> Result<(), Error> {
+) -> Result<(), error::Error> {
     let client_state = ctx
         .client_state(&client_id)
-        .ok_or_else(|| Kind::MissingClientState(client_id.clone()))?;
+        .ok_or_else(|| error::missing_client_state_error(client_id.clone()))?;
 
     // The client must not be frozen.
     if client_state.is_frozen() {
-        return Err(Kind::FrozenClient(client_id).into());
+        return Err(error::frozen_client_error(client_id));
     }
 
     let client_def = AnyClient::from_client_type(client_state.client_type());
 
     // Verify the proof for the packet against the chain store.
-    Ok(client_def
+    client_def
         .verify_next_sequence_recv(
             &client_state,
             proofs.height(),
@@ -159,7 +170,9 @@ pub fn verify_next_sequence_recv(
             &packet.destination_channel,
             &seq,
         )
-        .map_err(|_| Kind::PacketVerificationFailed(seq))?)
+        .map_err(|e| error::packet_verification_failed_error(seq, e))?;
+
+    Ok(())
 }
 
 pub fn verify_packet_receipt_absence(
@@ -167,20 +180,20 @@ pub fn verify_packet_receipt_absence(
     client_id: ClientId,
     packet: Packet,
     proofs: &Proofs,
-) -> Result<(), Error> {
+) -> Result<(), error::Error> {
     let client_state = ctx
         .client_state(&client_id)
-        .ok_or_else(|| Kind::MissingClientState(client_id.clone()))?;
+        .ok_or_else(|| error::missing_client_state_error(client_id.clone()))?;
 
     // The client must not be frozen.
     if client_state.is_frozen() {
-        return Err(Kind::FrozenClient(client_id).into());
+        return Err(error::frozen_client_error(client_id));
     }
 
     let client_def = AnyClient::from_client_type(client_state.client_type());
 
     // Verify the proof for the packet against the chain store.
-    Ok(client_def
+    client_def
         .verify_packet_receipt_absence(
             &client_state,
             proofs.height(),
@@ -189,5 +202,7 @@ pub fn verify_packet_receipt_absence(
             &packet.destination_channel,
             &packet.sequence,
         )
-        .map_err(|_| Kind::PacketVerificationFailed(packet.sequence))?)
+        .map_err(|e| error::packet_verification_failed_error(packet.sequence, e))?;
+
+    Ok(())
 }

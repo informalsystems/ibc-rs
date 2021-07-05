@@ -1,9 +1,10 @@
-use crate::ics23_commitment::error::Error;
+use crate::ics23_commitment::error;
+use crate::primitives::format;
 use ibc_proto::ibc::core::commitment::v1::MerkleProof as RawMerkleProof;
 use serde::{Deserialize, Serialize};
+use std::vec::Vec;
 use std::{convert::TryFrom, fmt};
 use subtle_encoding::{Encoding, Hex};
-
 #[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct CommitmentRoot {
@@ -84,12 +85,12 @@ impl From<RawMerkleProof> for CommitmentProofBytes {
 }
 
 impl TryFrom<CommitmentProofBytes> for RawMerkleProof {
-    type Error = Error;
+    type Error = error::Error;
 
     fn try_from(value: CommitmentProofBytes) -> Result<Self, Self::Error> {
         let value: Vec<u8> = value.into();
-        let res: RawMerkleProof =
-            prost::Message::decode(value.as_ref()).map_err(Error::InvalidRawMerkleProof)?;
+        let res: RawMerkleProof = prost::Message::decode(value.as_ref())
+            .map_err(error::invalid_raw_merkle_proof_error)?;
         Ok(res)
     }
 }

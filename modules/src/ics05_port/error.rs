@@ -1,16 +1,11 @@
-use anomaly::{BoxError, Context};
-use thiserror::Error;
+#[cfg(not(feature = "std"))]
+impl crate::primitives::StdError for Error {}
 
-pub type Error = anomaly::Error<Kind>;
+use flex_error::define_error;
 
-#[derive(Clone, Debug, Error)]
-pub enum Kind {
-    #[error("port unknown")]
-    UnknownPort,
-}
-
-impl Kind {
-    pub fn context(self, source: impl Into<BoxError>) -> Context<Self> {
-        Context::new(self, Some(source.into()))
+define_error! {
+    Error {
+        UnknownPort
+            | _ | { format_args!("port unknown") }
     }
 }

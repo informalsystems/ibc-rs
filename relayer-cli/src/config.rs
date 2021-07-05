@@ -6,26 +6,33 @@
 
 use std::collections::BTreeSet;
 
-use thiserror::Error;
-
+use flex_error::{define_error, TraceError};
 use ibc::ics24_host::identifier::ChainId;
-pub use ibc_relayer::config::Config;
+use ibc_relayer::config::Config;
+use tracing_subscriber::filter::ParseError;
 
-/// Specifies all the possible syntactic errors
-/// that a Hermes configuration file could contain.
-#[derive(Error, Debug)]
-pub enum Error {
-    /// No chain is configured
-    #[error("config file does not specify any chain")]
-    ZeroChains,
+// Specifies all the possible syntactic errors
+// that a Hermes configuration file could contain.
+define_error! {
+    Error {
+        ZeroChain
+            |_| { "config file does not specify any chain" },
 
-    /// The log level is invalid
-    #[error("config file specifies an invalid log level ('{0}'), caused by: {1}")]
-    InvalidLogLevel(String, String),
+        InvalidLogLevel
+            { log_level: String, }
+            [ TraceError<ParseError> ]
+            |e| {
+                format!("config file specifies an invalid log level ('{0}'), caused by",
+                    e.log_level)
+            },
 
-    /// Duplicate chains configured
-    #[error("config file has duplicate entry for the chain with id {0}")]
-    DuplicateChains(ChainId),
+        DuplicateChains
+            { chain_id: ChainId }
+            |e| {
+                format!("config file has duplicate entry for the chain with id {0}",
+                    e.chain_id)
+            },
+    }
 }
 
 /// Method for syntactic validation of the input
@@ -35,7 +42,7 @@ pub fn validate_config(config: &Config) -> Result<(), Error> {
     let mut unique_chain_ids = BTreeSet::new();
     for chain_id in config.chains.iter().map(|c| c.id.clone()) {
         if !unique_chain_ids.insert(chain_id.clone()) {
-            return Err(Error::DuplicateChains(chain_id));
+            return Err(duplicate_chains_error(chain_id));
         }
     }
 
