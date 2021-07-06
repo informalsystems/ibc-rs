@@ -24,7 +24,7 @@ use tendermint_rpc::query::Query;
 use tendermint_rpc::{endpoint::broadcast::tx_sync::Response, Client, HttpClient, Order};
 use tokio::runtime::Runtime as TokioRuntime;
 use tonic::codegen::http::Uri;
-use tracing::{debug, trace};
+use tracing::{debug, error, trace};
 
 use ibc::downcast;
 use ibc::events::{from_tx_response_event, IbcEvent};
@@ -53,8 +53,7 @@ use ibc_proto::cosmos::auth::v1beta1::{BaseAccount, QueryAccountRequest};
 use ibc_proto::cosmos::base::v1beta1::Coin;
 use ibc_proto::cosmos::tx::v1beta1::mode_info::{Single, Sum};
 use ibc_proto::cosmos::tx::v1beta1::{
-    AuthInfo, Fee, ModeInfo, SignDoc, SignerInfo, SimulateRequest, SimulateResponse, Tx, TxBody,
-    TxRaw,
+    AuthInfo, Fee, ModeInfo, SignDoc, SignerInfo, SimulateRequest, Tx, TxBody, TxRaw,
 };
 use ibc_proto::cosmos::upgrade::v1beta1::{
     QueryCurrentPlanRequest, QueryUpgradedConsensusStateRequest,
@@ -187,17 +186,13 @@ impl CosmosSdkChain {
         // [`MsgUpdateClient`, `MsgRecvPacket`, ..., `MsgRecvPacket`]
         // if the batch is split in two TX-es, the second one will fail the simulation in `deliverTx` check
         // In this case we just leave the gas un-adjusted, i.e. use `self.max_gas()`
-        let estimated_gas = self
-            .send_tx_simulate(SimulateRequest {
-                tx: Some(Tx {
-                    body: Some(body),
-                    auth_info: Some(auth_info),
-                    signatures: vec![signed_doc],
-                }),
-            })
-            .map_or(self.max_gas(), |sr| {
-                sr.gas_info.map_or(self.max_gas(), |g| g.gas_used)
-            });
+        let estimated_gas = self.send_tx_simulate(SimulateRequest {
+            tx: Some(Tx {
+                body: Some(body),
+                auth_info: Some(auth_info),
+                signatures: vec![signed_doc],
+            }),
+        })?;
 
         if estimated_gas > self.max_gas() {
             return Err(Kind::TxSimulateGasEstimateExceeded {
@@ -283,16 +278,6 @@ impl CosmosSdkChain {
         calculate_fee(gas, self.gas_price())
     }
 
-    /// The maximum number of messages included in a transaction
-    fn max_msg_num(&self) -> usize {
-        self.config.max_msg_num.unwrap_or(DEFAULT_MAX_MSG_NUM)
-    }
-
-    /// The maximum size of any transaction sent by the relayer to this chain
-    fn max_tx_size(&self) -> usize {
-        self.config.max_tx_size.unwrap_or(DEFAULT_MAX_TX_SIZE)
-    }
-
     fn query(&self, data: Path, height: ICSHeight, prove: bool) -> Result<QueryResponse, Error> {
         crate::time!("query");
 
@@ -343,7 +328,9 @@ impl CosmosSdkChain {
         Ok((proof, height))
     }
 
-    fn send_tx_simulate(&self, request: SimulateRequest) -> Result<SimulateResponse, Error> {
+    /// Returns the estimated gas for the given `SimulateRequest`.
+    /// Propagates unrecoverable errors.
+    fn send_tx_simulate(&self, request: SimulateRequest) -> Result<u64, Error> {
         crate::time!("tx simulate");
 
         let mut client = self
@@ -355,12 +342,31 @@ impl CosmosSdkChain {
             .map_err(|e| Kind::Grpc.context(e))?;
 
         let request = tonic::Request::new(request);
-        let response = self
-            .block_on(client.simulate(request))
-            .map_err(|e| Kind::Grpc.context(e))?
-            .into_inner();
 
-        Ok(response)
+        match self.block_on(client.simulate(request)) {
+            Ok(r) => {
+                let gas_info = r.into_inner().gas_info;
+                debug!("send_tx_simulate response gas_info={:?}", gas_info);
+                Ok(gas_info.map_or(self.max_gas(), |g| g.gas_used))
+            }
+            Err(s)
+                if (s.code() == tonic::Code::InvalidArgument)
+                    || (s.code() == tonic::Code::AlreadyExists) =>
+            {
+                // These specific errors indicate that the error cannot be recovered.
+                // Propagate this to the caller, and caller should
+                // abandon sending out the transactions.
+                error!("send_tx_simulate error: {:?}", s);
+                Err(Kind::TxSimulateError(s.code(), s.message().to_owned()).into())
+            }
+            Err(e) => {
+                error!(
+                    "recovering from send_tx_simulate error: {:?}; using preconfigured max gas",
+                    e
+                );
+                Ok(self.max_gas())
+            }
+        }
     }
 
     fn key(&self) -> Result<KeyEntry, Error> {
@@ -631,14 +637,15 @@ impl Chain for CosmosSdkChain {
         &mut self.keybase
     }
 
-    /// Send one or more transactions that include all the specified messages.
-    /// The `proto_msgs` are split in transactions such they don't exceed the configured maximum
-    /// number of messages per transaction and the maximum transaction size.
-    /// Then `send_tx()` is called with each Tx. `send_tx()` determines the fee based on the
-    /// on-chain simulation and if this exceeds the maximum gas specified in the configuration file
-    /// then it returns error.
-    /// TODO - more work is required here for a smarter split maybe iteratively accumulating/ evaluating
-    /// msgs in a Tx until any of the max size, max num msgs, max fee are exceeded.
+    /// Send a transaction that include all the specified messages.
+    /// Uses `send_tx()` to submit the messages. The method `send_tx`
+    /// determines the fee based on the on-chain simulation and
+    /// if this exceeds the maximum gas specified in the
+    /// configuration file then it returns error.
+    /// TODO - more work is required here for a smarter split
+    ///     maybe iteratively accumulating/ evaluating
+    ///     msgs in a Tx until any of the max size,
+    ///     max num msgs, max fee are exceeded.
     fn send_msgs(&mut self, proto_msgs: Vec<Any>) -> Result<Vec<IbcEvent>, Error> {
         crate::time!("send_msgs");
 
@@ -647,35 +654,12 @@ impl Chain for CosmosSdkChain {
         }
         let mut tx_sync_results = vec![];
 
-        let mut n = 0;
-        let mut size = 0;
-        let mut msg_batch = vec![];
-        for msg in proto_msgs.iter() {
-            msg_batch.push(msg.clone());
-            let mut buf = Vec::new();
-            prost::Message::encode(msg, &mut buf).unwrap();
-            n += 1;
-            size += buf.len();
-            if n >= self.max_msg_num() || size >= self.max_tx_size() {
-                let events_per_tx = vec![IbcEvent::Empty("".to_string()); msg_batch.len()];
-                let tx_sync_result = self.send_tx(msg_batch)?;
-                tx_sync_results.push(TxSyncResult {
-                    response: tx_sync_result,
-                    events: events_per_tx,
-                });
-                n = 0;
-                size = 0;
-                msg_batch = vec![];
-            }
-        }
-        if !msg_batch.is_empty() {
-            let events_per_tx = vec![IbcEvent::Empty("".to_string()); msg_batch.len()];
-            let tx_sync_result = self.send_tx(msg_batch)?;
-            tx_sync_results.push(TxSyncResult {
-                response: tx_sync_result,
-                events: events_per_tx,
-            });
-        }
+        let events_per_tx = vec![IbcEvent::Empty("".to_string()); proto_msgs.len()];
+        let tx_sync_result = self.send_tx(proto_msgs)?;
+        tx_sync_results.push(TxSyncResult {
+            response: tx_sync_result,
+            events: events_per_tx,
+        });
 
         let tx_sync_results = self.wait_for_block_commits(tx_sync_results)?;
 
@@ -1622,6 +1606,14 @@ impl Chain for CosmosSdkChain {
             light_client.header_and_minimal_set(trusted_height, target_height, client_state)?;
 
         Ok((target, supporting))
+    }
+
+    fn max_msg_num(&self) -> usize {
+        self.config.max_msg_num.unwrap_or(DEFAULT_MAX_MSG_NUM)
+    }
+
+    fn max_tx_size(&self) -> usize {
+        self.config.max_tx_size.unwrap_or(DEFAULT_MAX_TX_SIZE)
     }
 }
 

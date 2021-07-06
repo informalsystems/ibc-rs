@@ -380,6 +380,14 @@ impl Chain for MockChain {
     ) -> Result<(Self::ConsensusState, MerkleProof), Error> {
         unimplemented!()
     }
+
+    fn max_msg_num(&self) -> usize {
+        30
+    }
+
+    fn max_tx_size(&self) -> usize {
+        2 * 1024 * 1024
+    }
 }
 
 // For integration tests with the modules
