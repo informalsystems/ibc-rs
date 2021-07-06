@@ -1,3 +1,5 @@
+//! Chain upgrade plans for triggering IBC-breaking upgrades.
+
 use std::time::Duration;
 
 use prost_types::Any;
@@ -9,7 +11,8 @@ use ibc::ics02_client::height::Height;
 use ibc::ics24_host::identifier::{ChainId, ClientId};
 use ibc::{events::IbcEvent, ics07_tendermint::client_state::ClientState};
 use ibc_proto::cosmos::gov::v1beta1::MsgSubmitProposal;
-use ibc_proto::cosmos::upgrade::v1beta1::{Plan, SoftwareUpgradeProposal};
+use ibc_proto::cosmos::upgrade::v1beta1::Plan;
+use ibc_proto::ibc::core::client::v1::UpgradeProposal;
 
 use crate::chain::{Chain, CosmosSdkChain};
 use crate::config::ChainConfig;
@@ -30,20 +33,22 @@ pub enum UpgradeChainError {
 }
 
 #[derive(Clone, Debug)]
-pub struct UpdatePlanOptions {
+pub struct UpgradePlanOptions {
     pub src_chain_config: ChainConfig,
     pub dst_chain_config: ChainConfig,
     pub src_client_id: ClientId,
     pub amount: u64,
     pub height_offset: u64,
+    pub upgraded_chain_id: ChainId,
+    pub upgraded_unbonding_period: Duration,
+    pub upgrade_plan_name: String,
 }
 
-pub fn build_and_send_upgrade_chain_message(
-    mut dst_chain: CosmosSdkChain, // the chain whose account is debited
-    src_chain: CosmosSdkChain,     // the chain where the transfer is sent
-    opts: &UpdatePlanOptions,
+pub fn build_and_send_ibc_upgrade_proposal(
+    mut dst_chain: CosmosSdkChain, // the chain which will undergo an upgrade
+    src_chain: CosmosSdkChain, // the source chain; supplies a client state for building the upgrade plan
+    opts: &UpgradePlanOptions,
 ) -> Result<Vec<IbcEvent>, UpgradeChainError> {
-    // build a proposal Plan
     let upgrade_height = dst_chain
         .query_latest_height()
         .unwrap()
@@ -55,29 +60,26 @@ pub fn build_and_send_upgrade_chain_message(
 
     let mut upgraded_client_state = ClientState::zero_custom_fields(client_state);
     upgraded_client_state.latest_height = upgrade_height.increment();
-    upgraded_client_state.unbonding_period = Duration::from_secs(400 * 3600);
+    upgraded_client_state.unbonding_period = opts.upgraded_unbonding_period;
+    upgraded_client_state.chain_id = opts.upgraded_chain_id.clone();
 
     let raw_client_state = AnyClientState::Tendermint(upgraded_client_state);
-    let plan = Plan {
-        name: "test".to_string(),
-        time: None,
-        height: upgrade_height.revision_height as i64,
-        info: "upgrade the chain software and unbonding period".to_string(),
-        upgraded_client_state: Some(Any::from(raw_client_state)),
-    };
-
-    // build the proposal
-    let proposal = SoftwareUpgradeProposal {
-        title: "upgrade_ibc_clients".to_string(),
+    let proposal = UpgradeProposal {
+        title: "proposal 0".to_string(),
         description: "upgrade the chain software and unbonding period".to_string(),
-        plan: Some(plan),
+        upgraded_client_state: Some(Any::from(raw_client_state)),
+        plan: Some(Plan {
+            name: opts.upgrade_plan_name.clone(),
+            height: upgrade_height.revision_height as i64,
+            info: "".to_string(),
+        }),
     };
 
     let mut buf_proposal = Vec::new();
     prost::Message::encode(&proposal, &mut buf_proposal).unwrap();
 
     let any_proposal = Any {
-        type_url: "/cosmos.upgrade.v1beta1.SoftwareUpgradeProposal".to_string(),
+        type_url: "/ibc.core.client.v1.UpgradeProposal".to_string(),
         value: buf_proposal,
     };
 

@@ -54,8 +54,12 @@ pub enum Kind {
     #[error("Bad Notification")]
     Event,
 
+    /// Conversion from a protobuf `Any` failed
+    #[error("Conversion from a protobuf `Any` into a domain type failed")]
+    ConversionFromAny,
+
     /// Missing ClientState in the upgrade CurrentPlan
-    #[error("The upgrade plan specifies no upgraded client state")]
+    #[error("Found no upgraded client state")]
     EmptyUpgradedClientState,
 
     /// Response does not contain data
@@ -197,6 +201,12 @@ pub enum Kind {
 
     #[error("client type mismatch: expected '{expected}', got '{got}'")]
     ClientTypeMismatch {
+        expected: ClientType,
+        got: ClientType,
+    },
+
+    #[error("consensus state type mismatch; hint: expected client type '{expected}', got '{got}'")]
+    ConsensusStateTypeMismatch {
         expected: ClientType,
         got: ClientType,
     },

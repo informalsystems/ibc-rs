@@ -32,6 +32,7 @@ use ibc::ics02_client::client_consensus::{
     AnyConsensusState, AnyConsensusStateWithHeight, QueryClientEventRequest,
 };
 use ibc::ics02_client::client_state::{AnyClientState, IdentifiedAnyClientState};
+use ibc::ics02_client::client_type::ClientType;
 use ibc::ics02_client::events as ClientEvents;
 use ibc::ics03_connection::connection::{ConnectionEnd, IdentifiedConnectionEnd};
 use ibc::ics04_channel::channel::{ChannelEnd, IdentifiedChannelEnd, QueryPacketEventDataRequest};
@@ -55,9 +56,6 @@ use ibc_proto::cosmos::tx::v1beta1::mode_info::{Single, Sum};
 use ibc_proto::cosmos::tx::v1beta1::{
     AuthInfo, Fee, ModeInfo, SignDoc, SignerInfo, SimulateRequest, SimulateResponse, Tx, TxBody,
     TxRaw,
-};
-use ibc_proto::cosmos::upgrade::v1beta1::{
-    QueryCurrentPlanRequest, QueryUpgradedConsensusStateRequest,
 };
 use ibc_proto::ibc::core::channel::v1::{
     PacketState, QueryChannelClientStateRequest, QueryChannelsRequest,
@@ -188,12 +186,10 @@ impl CosmosSdkChain {
         // if the batch is split in two TX-es, the second one will fail the simulation in `deliverTx` check
         // In this case we just leave the gas un-adjusted, i.e. use `self.max_gas()`
         let estimated_gas = self
-            .send_tx_simulate(SimulateRequest {
-                tx: Some(Tx {
-                    body: Some(body),
-                    auth_info: Some(auth_info),
-                    signatures: vec![signed_doc],
-                }),
+            .send_tx_simulate(Tx {
+                body: Some(body),
+                auth_info: Some(auth_info),
+                signatures: vec![signed_doc],
             })
             .map_or(self.max_gas(), |sr| {
                 sr.gas_info.map_or(self.max_gas(), |g| g.gas_used)
@@ -315,12 +311,17 @@ impl CosmosSdkChain {
         Ok(response)
     }
 
-    // Perform an ABCI query against the client upgrade sub-store to fetch a proof.
-    fn query_client_upgrade_proof(
+    /// Perform an ABCI query against the client upgrade sub-store.
+    /// Fetches both the target data, as well as the proof.
+    ///
+    /// The data is returned in its raw format `Vec<u8>`, and is either
+    /// the client state (if the target path is [`UpgradedClientState`]),
+    /// or the client consensus state ([`UpgradedClientConsensusState`]).
+    fn query_client_upgrade_state(
         &self,
         data: ClientUpgradePath,
         height: Height,
-    ) -> Result<(MerkleProof, ICSHeight), Error> {
+    ) -> Result<(Vec<u8>, MerkleProof), Error> {
         let prev_height =
             Height::try_from(height.value() - 1).map_err(|e| Kind::InvalidHeight.context(e))?;
 
@@ -335,16 +336,18 @@ impl CosmosSdkChain {
 
         let proof = response.proof.ok_or(Kind::EmptyResponseProof)?;
 
-        let height = ICSHeight::new(
-            self.config.id.version(),
-            response.height.increment().value(),
-        );
-
-        Ok((proof, height))
+        Ok((response.value, proof))
     }
 
-    fn send_tx_simulate(&self, request: SimulateRequest) -> Result<SimulateResponse, Error> {
+    fn send_tx_simulate(&self, tx: Tx) -> Result<SimulateResponse, Error> {
         crate::time!("tx simulate");
+
+        // The `tx` field of `SimulateRequest` was deprecated
+        // in favor of `tx_bytes`
+        let mut tx_bytes = vec![];
+        prost::Message::encode(&tx, &mut tx_bytes).unwrap();
+        #[allow(deprecated)]
+        let req = SimulateRequest { tx: None, tx_bytes };
 
         let mut client = self
             .block_on(
@@ -354,7 +357,7 @@ impl CosmosSdkChain {
             )
             .map_err(|e| Kind::Grpc.context(e))?;
 
-        let request = tonic::Request::new(request);
+        let request = tonic::Request::new(req);
         let response = self
             .block_on(client.simulate(request))
             .map_err(|e| Kind::Grpc.context(e))?
@@ -811,41 +814,24 @@ impl Chain for CosmosSdkChain {
     ) -> Result<(Self::ClientState, MerkleProof), Error> {
         crate::time!("query_upgraded_client_state");
 
-        let mut client = self
-            .block_on(
-                ibc_proto::cosmos::upgrade::v1beta1::query_client::QueryClient::connect(
-                    self.grpc_addr.clone(),
-                ),
-            )
-            .map_err(|e| Kind::Grpc.context(e))?;
-
-        let req = tonic::Request::new(QueryCurrentPlanRequest {});
-        let response = self
-            .block_on(client.current_plan(req))
-            .map_err(|e| Kind::Grpc.context(e))?;
-
-        let upgraded_client_state_raw = response
-            .into_inner()
-            .plan
-            .ok_or(Kind::EmptyResponseValue)?
-            .upgraded_client_state
-            .ok_or(Kind::EmptyUpgradedClientState)?;
-        let client_state = AnyClientState::try_from(upgraded_client_state_raw)
-            .map_err(|e| Kind::Grpc.context(e))?;
-
-        // TODO: Better error kinds here.
-        let tm_client_state =
-            downcast!(client_state => AnyClientState::Tendermint).ok_or_else(|| {
-                Kind::Query("upgraded client state".into()).context("unexpected client state type")
-            })?;
-
-        // Query for the proof.
+        // Query for the value and the proof.
         let tm_height =
             Height::try_from(height.revision_height).map_err(|e| Kind::InvalidHeight.context(e))?;
-        let (proof, _proof_height) = self.query_client_upgrade_proof(
+        let (upgraded_client_state_raw, proof) = self.query_client_upgrade_state(
             ClientUpgradePath::UpgradedClientState(height.revision_height),
             tm_height,
         )?;
+
+        let client_state = AnyClientState::decode_vec(&upgraded_client_state_raw)
+            .map_err(|e| Kind::ConversionFromAny.context(e))?;
+        let client_type = client_state.client_type();
+        let tm_client_state =
+            downcast!(client_state => AnyClientState::Tendermint).ok_or_else(|| {
+                Kind::ClientTypeMismatch {
+                    expected: ClientType::Tendermint,
+                    got: client_type,
+                }
+            })?;
 
         Ok((tm_client_state, proof))
     }
@@ -859,41 +845,21 @@ impl Chain for CosmosSdkChain {
         let tm_height =
             Height::try_from(height.revision_height).map_err(|e| Kind::InvalidHeight.context(e))?;
 
-        let mut client = self
-            .block_on(
-                ibc_proto::cosmos::upgrade::v1beta1::query_client::QueryClient::connect(
-                    self.grpc_addr.clone(),
-                ),
-            )
-            .map_err(|e| Kind::Grpc.context(e))?;
-
-        let req = tonic::Request::new(QueryUpgradedConsensusStateRequest {
-            last_height: tm_height.into(),
-        });
-        let response = self
-            .block_on(client.upgraded_consensus_state(req))
-            .map_err(|e| Kind::Grpc.context(e))?;
-
-        let upgraded_consensus_state_raw = response
-            .into_inner()
-            .upgraded_consensus_state
-            .ok_or(Kind::EmptyResponseValue)?;
-
-        // TODO: More explicit error kinds (should not reuse Grpc all over the place)
-        let consensus_state = AnyConsensusState::try_from(upgraded_consensus_state_raw)
-            .map_err(|e| Kind::Grpc.context(e))?;
-
-        let tm_consensus_state = downcast!(consensus_state => AnyConsensusState::Tendermint)
-            .ok_or_else(|| {
-                Kind::Query("upgraded consensus state".into())
-                    .context("unexpected consensus state type")
-            })?;
-
-        // Fetch the proof.
-        let (proof, _proof_height) = self.query_client_upgrade_proof(
+        // Fetch the consensus state and its proof.
+        let (upgraded_consensus_state_raw, proof) = self.query_client_upgrade_state(
             ClientUpgradePath::UpgradedClientConsensusState(height.revision_height),
             tm_height,
         )?;
+
+        let consensus_state = AnyConsensusState::decode_vec(&upgraded_consensus_state_raw)
+            .map_err(|e| Kind::ConversionFromAny.context(e))?;
+
+        let cs_client_type = consensus_state.client_type();
+        let tm_consensus_state = downcast!(consensus_state => AnyConsensusState::Tendermint)
+            .ok_or_else(|| Kind::ConsensusStateTypeMismatch {
+                expected: ClientType::Tendermint,
+                got: cs_client_type,
+            })?;
 
         Ok((tm_consensus_state, proof))
     }
