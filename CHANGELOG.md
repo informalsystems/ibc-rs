@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- [ibc-relayer-cli]
+  - Added `upgrade-clients` CLI ([#763])
 
 Many thanks to Fraccaroli Gianmarco (@Fraccaman) for helping us improve the
 reliability of Hermes ([#697]).
@@ -50,6 +52,7 @@ not affect the other commands.
 
 [#600]: https://github.com/informalsystems/ibc-rs/issues/600
 [#697]: https://github.com/informalsystems/ibc-rs/issues/697
+[#763]: https://github.com/informalsystems/ibc-rs/issues/763
 [#1062]: https://github.com/informalsystems/ibc-rs/issues/1062
 [#1117]: https://github.com/informalsystems/ibc-rs/issues/1117
 [#1057]: https://github.com/informalsystems/ibc-rs/issues/1057
