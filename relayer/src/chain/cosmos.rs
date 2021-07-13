@@ -1,14 +1,16 @@
-use std::{
+use std::{thread, time::Instant};
+
+use core::{
     cmp::min,
     convert::{TryFrom, TryInto},
     future::Future,
     str::FromStr,
-    sync::Arc,
-    thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
+use alloc::sync::Arc;
 use anomaly::fail;
+
 use bech32::{ToBase32, Variant};
 use bitcoin::hashes::hex::ToHex;
 use itertools::Itertools;
@@ -95,7 +97,7 @@ const DEFAULT_MAX_TX_SIZE: usize = 2 * 1048576; // 2 MBytes
 
 mod retry_strategy {
     use crate::util::retry::Fixed;
-    use std::time::Duration;
+    use core::time::Duration;
 
     pub fn wait_for_block_commits(max_total_wait: Duration) -> impl Iterator<Item = Duration> {
         let backoff_millis = 300; // The periodic backoff

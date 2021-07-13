@@ -1,3 +1,5 @@
+#![allow(clippy::borrowed_box)]
+
 use ibc::{
     events::IbcEvent,
     ics03_connection::connection::State as ConnectionState,

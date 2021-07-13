@@ -1,4 +1,4 @@
-use std::time::Duration;
+use core::time::Duration;
 
 use anomaly::BoxError;
 use crossbeam_channel::Receiver;
