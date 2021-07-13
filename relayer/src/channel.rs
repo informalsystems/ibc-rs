@@ -32,6 +32,7 @@ use crate::object::Channel as WorkerChannelObject;
 use crate::supervisor::Error as WorkerChannelError;
 use crate::util::retry::RetryResult;
 use crate::util::retry::{retry_count, retry_with_index};
+use std::fmt;
 
 mod retry_strategy {
     use std::time::Duration;
@@ -839,6 +840,30 @@ impl Channel {
             .query_connection(self.dst_connection_id(), Height::zero())
             .map_err(|e| ChannelError::QueryError(self.dst_chain().id(), e))?;
 
+        // If a counterparty channel is specified check that the channel exists on destination
+        if let Some(counterparty_channel_id) = self.dst_channel_id() {
+            let channel = self
+                .dst_chain()
+                .query_channel(self.dst_port_id(), counterparty_channel_id, Height::zero())
+                .map_err(|e| {
+                    ChannelError::Failed(format!(
+                        "error querying counterparty channel {}/{} on destination chain {}: {}",
+                        self.dst_port_id(),
+                        counterparty_channel_id,
+                        self.dst_chain().id(),
+                        e
+                    ))
+                })?;
+            if channel.state_matches(&State::Uninitialized) {
+                return Err(ChannelError::Failed(format!(
+                    "counterparty channel {}/{} specified in open-init but does not exist on destination chain {}",
+                    self.dst_port_id(),
+                    counterparty_channel_id,
+                    self.dst_chain().id()
+                )));
+            }
+        }
+
         let query_height = self
             .src_chain()
             .query_latest_height()
@@ -860,7 +885,7 @@ impl Channel {
             *src_channel.ordering(),
             counterparty,
             vec![self.dst_connection_id().clone()],
-            self.dst_version()?,
+            src_channel.version(),
         );
 
         // Get signer
@@ -882,11 +907,13 @@ impl Channel {
         let new_msg = MsgChannelOpenTry {
             port_id: self.dst_port_id().clone(),
             previous_channel_id,
-            counterparty_version: self.src_version()?,
+            counterparty_version: src_channel.version(),
             channel,
             proofs,
             signer,
         };
+
+        tracing::trace!("Built try message: {:#?}", new_msg);
 
         msgs.push(new_msg.to_any());
         Ok(msgs)
@@ -933,7 +960,7 @@ impl Channel {
         self.validated_expected_channel(ChannelMsgType::OpenAck)?;
 
         // Channel must exist on source
-        self.src_chain()
+        let src_channel = self.src_chain()
             .query_channel(self.src_port_id(), src_channel_id, Height::zero())
             .map_err(|e| ChannelError::QueryError(self.src_chain().id(), e))?;
 
@@ -974,10 +1001,12 @@ impl Channel {
             port_id: self.dst_port_id().clone(),
             channel_id: dst_channel_id.clone(),
             counterparty_channel_id: src_channel_id.clone(),
-            counterparty_version: self.src_version()?,
+            counterparty_version: src_channel.version,
             proofs,
             signer,
         };
+
+        tracing::trace!("Built ack message: {:#?}", new_msg);
 
         msgs.push(new_msg.to_any());
         Ok(msgs)
@@ -1235,6 +1264,24 @@ impl Channel {
             }
             _ => panic!("internal error"),
         }
+    }
+}
+
+impl fmt::Display for Channel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let channel_id = self
+            .src_channel_id()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "None".to_string());
+
+        write!(
+            f,
+            "{}:{}/{} -> {}",
+            self.src_chain().id(),
+            self.src_port_id(),
+            channel_id,
+            self.dst_chain().id()
+        )
     }
 }
 
