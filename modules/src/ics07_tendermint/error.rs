@@ -1,7 +1,9 @@
+use crate::Height;
 use anomaly::{BoxError, Context};
 use thiserror::Error;
 
 use crate::ics24_host::error::ValidationKind;
+use tendermint::{account::Id, validator::Info};
 
 pub type Error = anomaly::Error<Kind>;
 
@@ -39,10 +41,45 @@ pub enum Kind {
 
     #[error("invalid raw misbehaviour")]
     InvalidRawMisbehaviour,
+
+    #[error(" hearder timestamp {0} must be at greater than current client consensus state timestamp {1}")]
+    LowUpdateTimestamp(String, String),
+
+    #[error(
+        "Header timestamp {0} is outside the trusting period w.r.t. consenus state timestamp{1}"
+    )]
+    HeaderTimestampOutsideTrustingTime(String, String),
+
+    #[error(" hearder height = {0} is invalid")]
+    InvalidHeaderHeight(Height),
+
+    #[error(" hearder height {0} must be at greater than current client height {1}")]
+    LowUpdateHeight(Height, Height),
 }
 
 impl Kind {
     pub fn context(self, source: impl Into<BoxError>) -> Context<Self> {
         Context::new(self, Some(source.into()))
     }
+}
+
+#[derive(Clone, Debug, Error)]
+pub enum VerificationError {
+    #[error("Couldn't verify signature `{signature:?}` with validator `{validator:?}` on sign_bytes `{sign_bytes:?}`")]
+    InvalidSignature {
+        /// Signature as a byte array
+        signature: Vec<u8>,
+        /// Validator which provided the signature
+        validator: Box<Info>,
+        /// Bytes which were signed
+        sign_bytes: Vec<u8>,
+    },
+
+    /// Duplicate validator in commit signatures
+    #[error("duplicate validator with address {0}")]
+    DuplicateValidator(Id),
+
+    /// Insufficient signers overlap
+    #[error("insufficient signers overlap {0} {1}")]
+    InsufficientOverlap(u64, u64),
 }

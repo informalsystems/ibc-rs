@@ -2954,8 +2954,6 @@ dependencies = [
 [[package]]
 name = "tendermint"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7d330f5d92e5e1c7a84130805b48b4983d98a37257034544492e3566315142b"
 dependencies = [
  "anomaly",
  "async-trait",
@@ -2986,8 +2984,6 @@ dependencies = [
 [[package]]
 name = "tendermint-light-client"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8809a07c5f1a400a1ce49bb6473a713f059511db4201f0f810ea4614665a212"
 dependencies = [
  "anomaly",
  "contracts",
@@ -3008,8 +3004,6 @@ dependencies = [
 [[package]]
 name = "tendermint-proto"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fadcaea1eecd91dbdd9636fe8ad38d2b41fc0ae814c176e51e00925cdda78a34"
 dependencies = [
  "anomaly",
  "bytes",
@@ -3027,8 +3021,6 @@ dependencies = [
 [[package]]
 name = "tendermint-rpc"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8f1c168b05be5e5c4237f49584356432defc91903f9dd7dbe74798eda48db43"
 dependencies = [
  "async-trait",
  "async-tungstenite",
@@ -3058,8 +3050,6 @@ dependencies = [
 [[package]]
 name = "tendermint-testgen"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbe4acaa8aa91bb208a22a7aa3e57610e2f6948c0b69667f7666ebc1bec27171"
 dependencies = [
  "ed25519-dalek",
  "gumdrop 0.8.0",

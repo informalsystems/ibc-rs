@@ -55,8 +55,11 @@ impl MockHeader {
     pub fn new(height: Height) -> Self {
         Self {
             height,
-            timestamp: Default::default(),
+            timestamp: Timestamp::now(), //Default::default(),
         }
+    }
+    pub fn new_time(height: Height, timestamp: Timestamp) -> Self {
+        Self { height, timestamp }
     }
 }
 
