@@ -9,7 +9,7 @@ specs of external blockchains, which are required to properly verify proofs
 against the client's consensus state.
 
 The structure within the `ibc-clients` crate is designed to provide flexibility
-for external users. It allows you to utilize the own `ibc-clients` crate or
+for external users. It allows you to utilize the `ibc-clients` crate or
 selectively import specific libraries, whether you need a certain IBC client
 implementation (e.g. `ibc-client-tendermint` crate) or only its associated data
 structures (e.g. `ibc-core-tendermint-types`). This versatility empowers hosts,

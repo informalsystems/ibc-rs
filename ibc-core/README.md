@@ -88,7 +88,7 @@ object-capability reference or source authentication for modules.
 > module in the host state machine, which cannot be altered by the module or
 > faked by another module.
 
-**This crate currently requires neither of the host system**. Since modules are
+**This crate currently requires neither of these from the host system**. Since modules are
 assumed to be trusted, there is no need for this object capability system that
 protects resources for potentially malicious modules.
 

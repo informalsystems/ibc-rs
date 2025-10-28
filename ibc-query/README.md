@@ -10,9 +10,9 @@ connection, and channel layers of a chain enabled with `ibc-rs`.
 ## Features
 
 - Provides essential utility request/response domain types and their conversions
-to the proto types for efficient integration.
+  to the proto types for efficient integration.
 - Provides convenient query objects with pre-implemented gRPC query services.
-- Offers convenient objects on which query service has been implemented and
+- Offers convenient objects on which query service has been implemented.
 - Includes convenient `QueryContext` and `ProvableContext` traits that extend
   the capabilities of an implemented IBC module, enabling the retrieval of state
   from the chain.

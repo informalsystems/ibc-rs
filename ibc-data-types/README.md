@@ -4,7 +4,7 @@ This crate serves as a central hub for re-exporting the implemented
 Inter-Blockchain Communication (IBC) data structures. It simplifies the
 integration of various IBC domain types into your project. IBC is a distributed
 protocol facilitating communication between independent sovereign blockchains
-and The IBC data structures within this crate abstract various IBC
+and the IBC data structures within this crate abstract various IBC
 specifications, offering a convenient means to encode and decode IBC messages to
 and from proto types exposed by
 [`ibc-proto`](https://github.com/cosmos/ibc-proto-rs) crate. Additionally, it
