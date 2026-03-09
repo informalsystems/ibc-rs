@@ -163,6 +163,7 @@ where
 }
 
 #[cfg(test)]
+#[cfg(feature = "rust-crypto")]
 mod tests {
     use super::*;
     use crate::hosts::{MockHost, TendermintHost};

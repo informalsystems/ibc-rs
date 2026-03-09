@@ -32,10 +32,11 @@ ibc-primitives              = { workspace = true }
 
 # cosmos dependencies
 tendermint                       = { workspace = true }
-tendermint-light-client-verifier = { workspace = true, features = [ "rust-crypto" ] }
+tendermint-light-client-verifier = { workspace = true }
 
 [features]
-default = [ "std" ]
+default = [ "std", "rust-crypto" ]
+rust-crypto = [ "tendermint-light-client-verifier/rust-crypto" ]
 std = [
   "serde/std",
   "ibc-client-tendermint-types/std",

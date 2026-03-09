@@ -10,10 +10,9 @@ use ibc_core_host::types::identifiers::ClientId;
 use ibc_core_host::types::path::ClientConsensusStatePath;
 use ibc_primitives::prelude::*;
 use ibc_primitives::proto::Any;
-use tendermint::crypto::default::Sha256;
 use tendermint::crypto::Sha256 as Sha256Trait;
 use tendermint::merkle::MerkleHash;
-use tendermint_light_client_verifier::{ProdVerifier, Verifier};
+use tendermint_light_client_verifier::Verifier;
 
 use super::{
     check_for_misbehaviour_on_misbehavior, check_for_misbehaviour_on_update,
@@ -48,17 +47,30 @@ where
     /// parameter.
     fn verify_client_message(
         &self,
-        ctx: &V,
-        client_id: &ClientId,
-        client_message: Any,
+        _ctx: &V,
+        _client_id: &ClientId,
+        _client_message: Any,
     ) -> Result<(), ClientError> {
-        verify_client_message::<V, Sha256>(
-            self.inner(),
-            ctx,
-            client_id,
-            client_message,
-            &ProdVerifier::default(),
-        )
+        #[cfg(feature = "rust-crypto")]
+        {
+            use tendermint::crypto::default::Sha256;
+            use tendermint_light_client_verifier::ProdVerifier;
+
+            verify_client_message::<V, Sha256>(
+                self.inner(),
+                _ctx,
+                _client_id,
+                _client_message,
+                &ProdVerifier::default(),
+            )
+        }
+        #[cfg(not(feature = "rust-crypto"))]
+        {
+            unimplemented!(
+                "verify_client_message requires the `rust-crypto` feature; \
+                 use a custom verifier via the standalone verify_client_message function instead"
+            )
+        }
     }
 
     fn check_for_misbehaviour(

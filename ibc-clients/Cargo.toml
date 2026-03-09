@@ -22,7 +22,8 @@ ibc-client-tendermint = { workspace = true }
 ibc-client-wasm-types = { workspace = true }
 
 [features]
-default = [ "std" ]
+default = [ "std", "rust-crypto" ]
+rust-crypto = [ "ibc-client-tendermint/rust-crypto" ]
 std = [
   "ibc-client-tendermint/std",
   "ibc-client-wasm-types/std",

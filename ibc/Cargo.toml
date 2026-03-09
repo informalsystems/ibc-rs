@@ -29,7 +29,8 @@ ibc-derive           = { workspace = true }
 ibc-primitives       = { workspace = true }
 
 [features]
-default = [ "std" ]
+default = [ "std", "rust-crypto" ]
+rust-crypto = [ "ibc-clients/rust-crypto" ]
 std = [
   "ibc-apps/std",
   "ibc-clients/std",

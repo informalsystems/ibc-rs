@@ -41,7 +41,8 @@ test-log       = { version = "0.2.16", features = [ "trace" ] }
 tendermint-rpc = { workspace = true }
 
 [features]
-default = [ "std" ]
+default = [ "std", "rust-crypto" ]
+rust-crypto = [ "ibc/rust-crypto" ]
 std = [
   "serde/std",
   "serde-json/std",
